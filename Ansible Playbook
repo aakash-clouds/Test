@@ -1,0 +1,64 @@
+---
+- hosts: mont
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Copy files from ss-jumphost to customer deployment
+      copy: src=/home/ubuntu/searchstax-ssl-may2020/{{ item }} dest=/etc/nginx/
+      with_items:
+        - searchstax.com-bundle.crt
+        - searchstax.com.key
+          
+    - name: Change ownership of certificate files
+      file:
+        path: /etc/nginx/searchstax.com-bundle.crt 
+        owner: www-data
+        group: www-data
+             
+    - name: Change ownership of certificate files
+      file:
+        path: /etc/nginx/searchstax.com.key 
+        owner: www-data
+        group: www-data
+
+    - name: Check that the proxy.conf file exists and save the value in register
+      stat:
+        path: /etc/nginx/conf.d/proxy.conf
+      register: stat_result
+
+    - name: Comment the old SSL certificates
+      replace:
+        path: /etc/nginx/conf.d/proxy.conf
+        regexp: '(.*ssl_certificate.*)'
+        replace: '#\1'
+      when:  stat_result.stat.exists
+
+    - name: Check that the solr_proxy.conf file exists and Comment the old SSL certificates
+      replace:
+        path: /etc/nginx/conf.d/solr_proxy.conf
+        regexp: '(.*ssl_certificate.*)'
+        replace: '#\1'
+      when: not stat_result.stat.exists   
+
+    - name: Add new ssl_certificates in proxy.conf file
+      blockinfile:
+        dest: /etc/nginx/conf.d/proxy.conf
+        block: |
+          ssl_certificate /etc/nginx/searchstax.com-bundle.crt;
+          ssl_certificate_key /etc/nginx/searchstax.com.key;
+        insertafter: "ssl_certificate"
+      when:  stat_result.stat.exists
+
+    - name: Add new ssl_certificates in solr_proxy.conf file
+      blockinfile:
+        dest: /etc/nginx/conf.d/solr_proxy.conf
+        block: |
+          ssl_certificate /etc/nginx/searchstax.com-bundle.crt;
+          ssl_certificate_key /etc/nginx/searchstax.com.key;
+        insertafter: "ssl_certificate"
+      when: not stat_result.stat.exists  
+
+    - name: restart nginx  
+      service: name=nginx state=restarted
+      become: true
+      become_method: sudo
